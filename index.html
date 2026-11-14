@@ -265,7 +265,7 @@ footer b{color:var(--white);display:block;margin-bottom:4px}
     <div class="side r" id="sideR" aria-hidden="true"></div>
     <div class="shade" id="shade"></div>
     <div class="poster" id="poster">
-      <img id="posterImg" alt="ニッサンスーパーエキスポ2026 Special 2026.11.29.SUN 富士スピードウェイ" width="1146" height="1426">
+      <img id="posterImg" fetchpriority="high" decoding="async" alt="ニッサンスーパーエキスポ2026 Special 2026.11.29.SUN 富士スピードウェイ" width="1146" height="1426">
     </div>
     <div class="cue" id="cue">SCROLL</div>
   </div>
@@ -713,13 +713,28 @@ function build(el, arr){
   return arr.map((src,i)=>{
     const d=document.createElement('div');
     d.className='ph'+(i===0?' on':'');
-    d.style.backgroundImage=`url("${src}")`;
+    d.dataset.src=src; d.ok=false;
+    if(i===0){ d.style.backgroundImage=`url("${src}")`; d.ok=true; }
     el.appendChild(d); return d;
   });
 }
-// 背景写真は opacity 切替のため全て先に読み込まれる
+// 背景写真：最初の1枚ずつだけ先に読み込み、残りは順番に裏で読み込む（初回表示を軽く）
 const phL = build(document.getElementById('sideL'), L);
 const phR = build(document.getElementById('sideR'), R);
+function preloadMV(){
+  const q=[]; for(let i=1;i<N;i++){ q.push(phL[i]); q.push(phR[i]); }
+  let running=0; const MAX=4;
+  (function next(){
+    while(running<MAX && q.length){
+      const d=q.shift(); running++;
+      const im=new Image(); im.decoding='async';
+      im.onload=im.onerror=()=>{ d.style.backgroundImage=`url("${d.dataset.src}")`; d.ok=true; running--; cur=-1; render(); next(); };
+      im.src=d.dataset.src;
+    }
+  })();
+}
+// 読み込み済みのうち、指定コマ以前で一番近いものを返す
+const nearest=(arr,i)=>{ for(let k=i;k>0;k--) if(arr[k].ok) return k; return 0; };
 document.getElementById('vShow').style.backgroundImage='url("img/venue-show.webp")';
 document.getElementById('vDrift').style.backgroundImage='url("img/venue-drift.webp")';
 
@@ -748,7 +763,7 @@ function render(){
   shade.style.opacity=p.toFixed(3);
   const idx=Math.min(N*2-1,Math.floor(p*N*2));   // 半コマ単位
   if(idx!==cur){
-    const li=Math.min(N-1,Math.floor(idx/2)), ri=Math.min(N-1,Math.floor((idx+1)/2));
+    const li=nearest(phL,Math.min(N-1,Math.floor(idx/2))), ri=nearest(phR,Math.min(N-1,Math.floor((idx+1)/2)));
     phL.forEach((d,i)=>d.classList.toggle('on',i===li));
     phR.forEach((d,i)=>d.classList.toggle('on',i===ri));
     cur=idx;
@@ -784,6 +799,7 @@ window.addEventListener('load',()=>{
   setTimeout(autoScroll,500);
 });
 render();
+preloadMV();
 
 /* ---------- エントリー締切カウントダウン ---------- */
 function updateEntry(){
@@ -837,7 +853,7 @@ function buildCols(n){
     const b=document.createElement('button'); b.type='button'; b.className='fly';
     b.style.aspectRatio=`1 / ${RATIOS[Math.floor(r()*RATIOS.length)]}`;
     b.setAttribute('aria-label',`2025年の写真 ${idx+1} を拡大`);
-    const im=document.createElement('img'); im.src=src; im.alt=''; im.loading='lazy'; b.appendChild(im);
+    const im=document.createElement('img'); im.src=src.replace('img/gal/','img/gal/s/'); im.alt=''; im.loading='lazy'; im.decoding='async'; b.appendChild(im);
     b.addEventListener('click',()=>openLb(src,b));
     col.el.appendChild(b);
   });
@@ -897,7 +913,8 @@ function finalRect(img){
 }
 function openLb(src,btn){
   if(lb.classList.contains('is-open')) return;
-  srcBtn=btn; lbImg.src=src;
+  srcBtn=btn; const th=btn.querySelector('img'); lbImg.src=th.currentSrc||th.src;
+  const full=new Image(); full.onload=()=>{ if(srcBtn===btn) lbImg.src=src; }; full.src=src;
   const from=btn.getBoundingClientRect(), to=finalRect(btn.querySelector('img'));
   Object.assign(lbFig.style,rectOf(from));
   lb.classList.add('is-open'); btn.style.opacity='0';
